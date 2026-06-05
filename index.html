@@ -1,1 +1,676 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <!-- スマホでの拡大縮小・スクロールを無効化 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Block Blast</title>
+    <style>
+        :root {
+            --bg-dark: #020612;
+            --board-bg: #061126;
+            --cell-bg: #0b1d3d;
+            --cyan: #00f0ff;
+            --cyan-glow: 0 0 10px #00f0ff, 0 0 20px #00f0ff;
+            --blue: #0066ff;
+            --alert: #ff0055;
+        }
 
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-dark);
+            /* 近未来的なグリッド背景 */
+            background-image: 
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+            color: #fff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* 画面にぴったり収めるための設定（見切れ防止） */
+            position: absolute;
+            top: 0; bottom: 0; left: 0; right: 0;
+            height: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
+            touch-action: none;
+        }
+
+        header {
+            text-align: center;
+            padding: 15px 0 5px;
+            height: 75px;
+            box-sizing: border-box;
+            flex-shrink: 0;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 28px;
+            color: #fff;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            animation: neon-flicker 4s infinite alternate;
+        }
+
+        @keyframes neon-flicker {
+            0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
+                text-shadow: 0 0 5px #fff, 0 0 15px var(--cyan), 0 0 30px var(--cyan);
+            }
+            20%, 24%, 55% {
+                text-shadow: none;
+            }
+        }
+
+        #score-board {
+            font-size: 22px;
+            margin-top: 5px;
+            color: var(--cyan);
+            font-weight: bold;
+            text-shadow: 0 0 8px var(--cyan);
+        }
+
+        #game-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: calc(100% - 75px);
+            padding: 10px;
+            box-sizing: border-box;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        #board {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            grid-template-rows: repeat(10, 1fr);
+            gap: 2px;
+            background-color: var(--board-bg);
+            border: 2px solid var(--blue);
+            box-shadow: 0 0 20px rgba(0, 102, 255, 0.4), inset 0 0 20px rgba(0, 102, 255, 0.4);
+            border-radius: 8px;
+            padding: 4px;
+            /* 画面サイズに応じて自動で縮小 */
+            width: min(90vw, 400px, 55vh);
+            height: min(90vw, 400px, 55vh);
+            position: relative;
+        }
+
+        .cell {
+            background-color: var(--cell-bg);
+            border-radius: 3px;
+            transition: background-color 0.1s, box-shadow 0.1s, transform 0.2s;
+            border: 1px solid rgba(0, 240, 255, 0.05);
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .cell.filled {
+            background-color: var(--cyan);
+            box-shadow: var(--cyan-glow), inset 0 0 8px #fff;
+            border: 1px solid #fff;
+        }
+
+        .cell.highlight {
+            background-color: rgba(0, 240, 255, 0.3);
+            box-shadow: inset 0 0 10px var(--cyan);
+            border: 1px solid var(--cyan);
+        }
+
+        .cell.clearing {
+            background-color: #fff;
+            box-shadow: 0 0 20px #fff, 0 0 40px var(--cyan);
+            transform: scale(1.1);
+            z-index: 10;
+            border-radius: 50%;
+        }
+
+        #tray {
+            display: flex;
+            justify-content: space-evenly;
+            align-items: center;
+            width: min(95vw, 450px);
+            height: min(120px, 18vh);
+            background: rgba(6, 17, 38, 0.7);
+            border-radius: 12px;
+            border: 1px solid rgba(0, 102, 255, 0.3);
+            box-shadow: inset 0 0 15px rgba(0, 0, 0, 0.5);
+            flex-shrink: 0;
+        }
+
+        .tray-slot {
+            width: 30%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .block-shape {
+            display: grid;
+            gap: 2px;
+            cursor: grab;
+            touch-action: none; /* 個別のブロックでもスクロール防止 */
+        }
+
+        .block-shape:active {
+            cursor: grabbing;
+        }
+
+        .block-shape.dragging {
+            position: fixed;
+            pointer-events: none; /* ドラッグ中は裏の要素のイベントを発火させるため */
+            z-index: 1000;
+            transform: scale(1.05);
+            opacity: 0.9;
+        }
+
+        .shape-cell {
+            background-color: var(--cyan);
+            box-shadow: 0 0 8px var(--cyan);
+            border-radius: 2px;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            width: 100%;
+            height: 100%;
+            box-sizing: border-box;
+        }
+
+        .shape-cell.empty {
+            background-color: transparent;
+            box-shadow: none;
+            border: none;
+        }
+
+        #game-over {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(2, 6, 18, 0.85);
+            backdrop-filter: blur(8px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            display: none;
+        }
+
+        #game-over h2 {
+            font-size: 42px;
+            color: var(--alert);
+            text-shadow: 0 0 20px var(--alert), 0 0 40px var(--alert);
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+        }
+
+        #final-score {
+            font-size: 26px;
+            color: #fff;
+            margin-bottom: 40px;
+            text-shadow: 0 0 10px #fff;
+        }
+
+        button {
+            background: transparent;
+            color: var(--cyan);
+            border: 2px solid var(--cyan);
+            padding: 15px 40px;
+            font-size: 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.3) inset, 0 0 10px rgba(0, 240, 255, 0.3);
+            text-transform: uppercase;
+            font-weight: bold;
+            transition: all 0.2s;
+            letter-spacing: 1px;
+        }
+
+        button:hover {
+            background: var(--cyan);
+            color: #000;
+            box-shadow: 0 0 20px var(--cyan) inset, 0 0 20px var(--cyan);
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>Neon Block Blast</h1>
+        <div id="score-board">SCORE: <span id="score-value">0</span></div>
+    </header>
+
+    <div id="game-container">
+        <div id="board"></div>
+        <div id="tray">
+            <div class="tray-slot" id="tray-slot-0"></div>
+            <div class="tray-slot" id="tray-slot-1"></div>
+            <div class="tray-slot" id="tray-slot-2"></div>
+        </div>
+    </div>
+
+    <div id="game-over">
+        <h2>SYSTEM FAILURE</h2>
+        <div id="final-score">FINAL SCORE: 0</div>
+        <button onclick="initGame()">Reboot System</button>
+    </div>
+
+    <script>
+        const BOARD_SIZE = 10;
+        let board = [];
+        let score = 0;
+        let trayBlocks = [null, null, null];
+        let isAnimating = false;
+        let currentDrag = null;
+
+        // ブロックの形状定義 (1: ブロックあり, 0: 空白)
+        const SHAPES = [
+            [[1]], // 1x1
+            [[1,1]], // 1x2
+            [[1],[1]], // 2x1
+            [[1,1,1]], // 1x3
+            [[1],[1],[1]], // 3x1
+            [[1,1,1,1]], // 1x4
+            [[1],[1],[1],[1]], // 4x1
+            [[1,1,1,1,1]], // 1x5
+            [[1],[1],[1],[1],[1]], // 5x1
+            [[1,1],[1,1]], // 2x2
+            [[1,1,1],[1,1,1],[1,1,1]], // 3x3
+            [[1,0,0],[1,0,0],[1,1,1]], // L
+            [[0,0,1],[0,0,1],[1,1,1]], // J
+            [[1,1,1],[1,0,0],[1,0,0]], // L(rot)
+            [[1,1,1],[0,0,1],[0,0,1]], // J(rot)
+            [[1,0],[1,1]], // small L
+            [[0,1],[1,1]], // small J
+            [[1,1],[1,0]], // small L(rot)
+            [[1,1],[0,1]], // small J(rot)
+            [[1,1,1],[0,1,0]], // T
+            [[0,1,0],[1,1,1]], // T(rot)
+            [[1,0],[1,1],[1,0]], // T(left)
+            [[0,1],[1,1],[0,1]], // T(right)
+            [[1,1,0],[0,1,1]], // Z
+            [[0,1,1],[1,1,0]], // S
+        ];
+
+        // ゲーム初期化
+        function initGame() {
+            board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
+            score = 0;
+            updateScore(0);
+            document.getElementById('game-over').style.display = 'none';
+            isAnimating = false;
+            
+            // 盤面の描画
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+            for(let r = 0; r < BOARD_SIZE; r++) {
+                for(let c = 0; c < BOARD_SIZE; c++) {
+                    let cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${r}-${c}`;
+                    boardEl.appendChild(cell);
+                }
+            }
+
+            trayBlocks = [null, null, null];
+            fillTray();
+        }
+
+        // トレイにブロックを補充
+        function fillTray() {
+            let allEmpty = trayBlocks.every(b => b === null);
+            if (allEmpty) {
+                for (let i = 0; i < 3; i++) {
+                    let randomShape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+                    trayBlocks[i] = randomShape;
+                    drawBlockInTray(document.getElementById(`tray-slot-${i}`), randomShape, i);
+                }
+            }
+        }
+
+        // トレイ内のブロック描画
+        function drawBlockInTray(slotElement, shape, index) {
+            slotElement.innerHTML = '';
+            if (!shape) return;
+
+            let shapeContainer = document.createElement('div');
+            shapeContainer.className = 'block-shape';
+            
+            // 画面サイズに応じてトレイのブロックサイズを調整し、潰れないようにする
+            let screenMin = Math.min(window.innerWidth, window.innerHeight);
+            let cellSize = Math.max(12, Math.min(18, screenMin / 30));
+
+            shapeContainer.style.gridTemplateColumns = `repeat(${shape[0].length}, ${cellSize}px)`;
+            shapeContainer.style.gridTemplateRows = `repeat(${shape.length}, ${cellSize}px)`;
+
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    let cell = document.createElement('div');
+                    cell.className = 'shape-cell' + (shape[r][c] ? '' : ' empty');
+                    shapeContainer.appendChild(cell);
+                }
+            }
+
+            // ドラッグ開始イベント（マウス＆タッチ）
+            shapeContainer.addEventListener('mousedown', (e) => handleDragStart(e, index, shape, shapeContainer));
+            shapeContainer.addEventListener('touchstart', (e) => handleDragStart(e, index, shape, shapeContainer), {passive: false});
+
+            slotElement.appendChild(shapeContainer);
+        }
+
+        // ドラッグ開始
+        function handleDragStart(e, index, shape, element) {
+            if (isAnimating) return;
+            if (e.type === 'touchstart' && e.cancelable) {
+                e.preventDefault(); // デフォルトのスクロール動作等を防ぐ
+            }
+            if (currentDrag) return;
+
+            // 盤面の1セルの実際のサイズを取得（クローンのサイズを盤面に合わせるため）
+            let firstCell = document.getElementById('cell-0-0');
+            let cellSize = firstCell.getBoundingClientRect().width;
+
+            // クローン要素を作成してbody直下に配置
+            let clone = document.createElement('div');
+            clone.className = 'block-shape dragging';
+            clone.style.gridTemplateColumns = `repeat(${shape[0].length}, ${cellSize}px)`;
+            clone.style.gridTemplateRows = `repeat(${shape.length}, ${cellSize}px)`;
+            clone.style.gap = '2px';
+
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    let cell = document.createElement('div');
+                    cell.className = 'shape-cell' + (shape[r][c] ? '' : ' empty');
+                    if(shape[r][c]) {
+                        cell.style.boxShadow = '0 0 15px #00f0ff'; // ドラッグ中はより光らせる
+                    }
+                    clone.appendChild(cell);
+                }
+            }
+
+            document.body.appendChild(clone);
+            element.style.opacity = '0.2'; // トレイの元要素は半透明に
+
+            currentDrag = {
+                index: index,
+                shape: shape,
+                clone: clone,
+                sourceElement: element,
+                targetRow: -1,
+                targetCol: -1
+            };
+
+            moveClone(e);
+        }
+
+        // ドラッグ移動中
+        function moveClone(e) {
+            if (!currentDrag) return;
+            
+            let clientX, clientY;
+            if (e.type.includes('touch')) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            if (clientX === undefined) return;
+
+            let clone = currentDrag.clone;
+            // スマホ操作時に指でブロックが隠れないように上にずらす
+            let yOffset = e.type.includes('touch') ? -(clone.offsetHeight + 60) : -(clone.offsetHeight / 2); 
+
+            clone.style.left = (clientX - clone.offsetWidth / 2) + 'px';
+            clone.style.top = (clientY + yOffset) + 'px';
+
+            checkSnap();
+        }
+
+        // ボードへのスナップ判定
+        function checkSnap() {
+            clearHighlight();
+            currentDrag.targetRow = -1;
+            currentDrag.targetCol = -1;
+
+            let clone = currentDrag.clone;
+            let cloneRect = clone.getBoundingClientRect();
+            let boardElement = document.getElementById('board');
+            let boardRect = boardElement.getBoundingClientRect();
+
+            // 完全に盤面外なら判定しない
+            if (cloneRect.right < boardRect.left || cloneRect.left > boardRect.right ||
+                cloneRect.bottom < boardRect.top || cloneRect.top > boardRect.bottom) {
+                return;
+            }
+
+            let firstCell = document.getElementById('cell-0-0');
+            let cellSize = firstCell.getBoundingClientRect().width;
+            let gap = 2; // CSSのgap設定値
+            let step = cellSize + gap;
+
+            // クローン中心座標
+            let cx = cloneRect.left + cloneRect.width / 2;
+            let cy = cloneRect.top + cloneRect.height / 2;
+
+            // ボード左上からの相対座標
+            let relX = cx - boardRect.left;
+            let relY = cy - boardRect.top;
+
+            let shape = currentDrag.shape;
+            let shapeCenterCol = shape[0].length / 2;
+            let shapeCenterRow = shape.length / 2;
+
+            // どのセルにスナップするか計算
+            let col = Math.floor(relX / step - shapeCenterCol + 0.5);
+            let row = Math.floor(relY / step - shapeCenterRow + 0.5);
+
+            if (canPlaceShape(shape, row, col)) {
+                currentDrag.targetRow = row;
+                currentDrag.targetCol = col;
+                highlightCells(shape, row, col);
+            }
+        }
+
+        // 配置可能かチェック
+        function canPlaceShape(shape, startRow, startCol) {
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c] === 1) {
+                        let boardRow = startRow + r;
+                        let boardCol = startCol + c;
+                        if (boardRow < 0 || boardRow >= BOARD_SIZE || boardCol < 0 || boardCol >= BOARD_SIZE) return false;
+                        if (board[boardRow][boardCol] === 1) return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // ハイライト表示
+        function highlightCells(shape, startRow, startCol) {
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c]) {
+                        let cell = document.getElementById(`cell-${startRow + r}-${startCol + c}`);
+                        if (cell) cell.classList.add('highlight');
+                    }
+                }
+            }
+        }
+
+        function clearHighlight() {
+            document.querySelectorAll('.cell.highlight').forEach(el => el.classList.remove('highlight'));
+        }
+
+        // ドラッグ終了（ドロップ）
+        function handleDragEnd(e) {
+            if (!currentDrag) return;
+
+            let { index, shape, clone, sourceElement, targetRow, targetCol } = currentDrag;
+            
+            clone.remove();
+            sourceElement.style.opacity = '1';
+            clearHighlight();
+
+            if (targetRow !== -1 && targetCol !== -1) {
+                // ボードに配置
+                placeShape(shape, targetRow, targetCol);
+                
+                // トレイから削除
+                trayBlocks[index] = null;
+                document.getElementById(`tray-slot-${index}`).innerHTML = '';
+                
+                // 配置スコア (1マスにつき10点)
+                let blocksCount = shape.flat().filter(v => v === 1).length;
+                updateScore(blocksCount * 10);
+
+                // ライン消去判定とゲーム進行
+                checkClear(); 
+            }
+
+            currentDrag = null;
+        }
+
+        // 形状をボードに記録して表示
+        function placeShape(shape, startRow, startCol) {
+            for (let r = 0; r < shape.length; r++) {
+                for (let c = 0; c < shape[r].length; c++) {
+                    if (shape[r][c]) {
+                        board[startRow + r][startCol + c] = 1;
+                        let cell = document.getElementById(`cell-${startRow + r}-${startCol + c}`);
+                        cell.classList.add('filled');
+                    }
+                }
+            }
+        }
+
+        // スコア更新
+        function updateScore(add) {
+            score += add;
+            document.getElementById('score-value').innerText = score;
+        }
+
+        // 行・列の揃い判定と消去アニメーション
+        function checkClear() {
+            let linesToClear = [];
+            
+            // 行のチェック
+            for(let r=0; r<BOARD_SIZE; r++) {
+                let full = true;
+                for(let c=0; c<BOARD_SIZE; c++) {
+                    if(board[r][c] === 0) full = false;
+                }
+                if(full) linesToClear.push({type: 'row', index: r});
+            }
+            
+            // 列のチェック
+            for(let c=0; c<BOARD_SIZE; c++) {
+                let full = true;
+                for(let r=0; r<BOARD_SIZE; r++) {
+                    if(board[r][c] === 0) full = false;
+                }
+                if(full) linesToClear.push({type: 'col', index: c});
+            }
+
+            if(linesToClear.length > 0) {
+                isAnimating = true;
+                
+                // スコア加算 (1ライン100点 + コンボボーナス)
+                let baseScore = linesToClear.length * 100;
+                let comboBonus = linesToClear.length > 1 ? (linesToClear.length - 1) * 100 : 0;
+                updateScore(baseScore + comboBonus);
+
+                // 消去対象のセルを特定
+                let cellsToClear = new Set();
+                linesToClear.forEach(line => {
+                    if(line.type === 'row') {
+                        for(let c=0; c<BOARD_SIZE; c++) cellsToClear.add(`${line.index},${c}`);
+                    } else {
+                        for(let r=0; r<BOARD_SIZE; r++) cellsToClear.add(`${r},${line.index}`);
+                    }
+                });
+
+                // アニメーションクラス付与
+                cellsToClear.forEach(coord => {
+                    let [r, c] = coord.split(',').map(Number);
+                    let cell = document.getElementById(`cell-${r}-${c}`);
+                    cell.classList.add('clearing');
+                });
+
+                // アニメーション後に配列をクリアして次へ
+                setTimeout(() => {
+                    cellsToClear.forEach(coord => {
+                        let [r, c] = coord.split(',').map(Number);
+                        board[r][c] = 0;
+                        let cell = document.getElementById(`cell-${r}-${c}`);
+                        cell.classList.remove('clearing', 'filled');
+                    });
+                    
+                    isAnimating = false;
+                    postPlaceChecks();
+                }, 300); // CSSのtransition時間と合わせる
+            } else {
+                postPlaceChecks();
+            }
+        }
+
+        // 配置完了後の共通処理
+        function postPlaceChecks() {
+            fillTray(); // トレイが空なら補充
+            checkGameOver(); // 配置可能な場所があるか確認
+        }
+
+        // ゲームオーバー判定
+        function checkGameOver() {
+            let canPlace = false;
+            for (let i = 0; i < 3; i++) {
+                if (!trayBlocks[i]) continue;
+                let shape = trayBlocks[i];
+                
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        if (canPlaceShape(shape, r, c)) {
+                            canPlace = true;
+                            break;
+                        }
+                    }
+                    if (canPlace) break;
+                }
+                if (canPlace) break;
+            }
+
+            // トレイにブロックが残っているのに1つも置けない場合
+            if (!canPlace && trayBlocks.some(b => b !== null)) {
+                document.getElementById('final-score').innerText = `FINAL SCORE: ${score}`;
+                document.getElementById('game-over').style.display = 'flex';
+            }
+        }
+
+        // グローバルイベントリスナの登録
+        document.addEventListener('mousemove', moveClone);
+        document.addEventListener('touchmove', (e) => {
+            if (currentDrag) {
+                e.preventDefault(); // ドラッグ中の画面スクロールを防止
+                moveClone(e);
+            }
+        }, { passive: false });
+        
+        document.addEventListener('mouseup', handleDragEnd);
+        document.addEventListener('touchend', handleDragEnd);
+
+        // ゲーム起動を確実に行うための修正
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initGame);
+        } else {
+            initGame();
+        }
+
+    </script>
+</body>
+</html>
